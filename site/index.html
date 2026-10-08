@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>혈당 관리 앱 다운로드</title>
+  <style>
+    :root { --bg:#f4f6fb; --card:#fff; --text:#1c1e27; --sub:#5b6275; --accent:#4f46e5; --accent2:#7c3aed; --warn:#fb8c00; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#12131a; --card:#1c1e27; --text:#eef0f6; --sub:#b4bacb; } }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; line-height:1.6; }
+    main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+    .card { background:var(--card); border-radius:24px; padding:22px; box-shadow:0 6px 24px rgba(0,0,0,.08); margin-bottom:16px; }
+    h1 { margin:0 0 4px; font-size:28px; }
+    .sub { color:var(--sub); margin:0 0 16px; }
+    .btn { display:inline-block; padding:14px 26px; border-radius:999px; color:#fff; text-decoration:none; font-weight:700;
+           background:linear-gradient(90deg,var(--accent),var(--accent2)); }
+    .warn { border-left:4px solid var(--warn); padding:10px 14px; background:rgba(251,140,0,.1); border-radius:12px; }
+    ol { padding-left: 20px; } code { font-size: 12px; word-break: break-all; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>🩸 혈당 관리</h1>
+    <p class="sub">손가락 채혈 측정 일정 · 기록 · 식사/운동/체중/복용 약 · 추세를 한 앱에서 (Android 8.0 이상)</p>
+    <!-- Update href/version on each release (see docs/release.md) -->
+    <a class="btn" href="#" id="dl">최신 버전 다운로드 (v1.0.0)</a>
+    <p class="sub" style="margin-top:12px">SHA-256: <code>42efc5d8b2811be9f14453161f0fb88c18e4a5bf0a7ed52b7a94031e8a7d1814</code></p>
+  </div>
+  <div class="card">
+    <h2>설치 방법</h2>
+    <ol>
+      <li>위 버튼으로 APK 파일을 받습니다.</li>
+      <li>처음 설치할 때는 브라우저나 파일 앱에 <b>"출처를 알 수 없는 앱 설치"</b>를 허용합니다.</li>
+      <li>첫 실행 때 <b>알림</b>과 <b>정확한 알람</b>을 허용하고, <b>배터리 최적화 예외</b>를 설정합니다.</li>
+      <li><b>업그레이드</b>: 새 APK를 그대로 설치하면 덮어설치되고 기록은 유지됩니다.</li>
+    </ol>
+  </div>
+  <div class="card warn">
+    <b>꼭 읽어 주세요</b><br>
+    • 앱이 보여주는 추정 혈당은 <b>참고용 예상값이며 의료적 판단에 사용할 수 없습니다.</b><br>
+    • 앱을 지우기 전에 반드시 <b>설정 → 백업 파일 만들기</b>를 하세요. 앱을 지우면 기록이 함께 지워집니다.
+  </div>
+</main>
+</body>
+</html>

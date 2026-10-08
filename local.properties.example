@@ -1,0 +1,4 @@
+# Copy to local.properties (never commit). Paths use escaped backslashes on Windows.
+sdk.dir=C\:\Users\<you>\AppData\Local\Android\Sdk
+# Kakao Developers > 내 애플리케이션 > 앱 키 > 네이티브 앱 키 (optional; Kakao features disabled when empty)
+KAKAO_NATIVE_APP_KEY=
