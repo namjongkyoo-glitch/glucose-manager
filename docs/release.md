@@ -25,7 +25,7 @@
    ```
    인증서 SHA-256이 위 값과 같아야 한다.
 5. 실기기에서 이전 버전 위에 덮어설치하고(`adb install -r ...`) 기록이 유지되는지 확인한다.
-6. (요청받았을 때만) GitHub Releases에 `app-release.apk`를 `glucose-<versionName>.apk` 이름으로 올리고, 릴리스 노트에 SHA-256을 적는다. `site/index.html`의 다운로드 링크와 버전을 갱신한다.
+6. (요청받았을 때만) GitHub Releases(`namjongkyoo-glitch/glucose-manager`)에 태그 `v<versionName>`으로 `app-release.apk`를 **항상 `glucose-manager.apk` 이름으로** 올리고(최신 다운로드 링크 고정), 릴리스 노트에 SHA-256을 적는다. `site/index.html`의 버전 문구와 SHA-256을 갱신하고 `git subtree push --prefix site origin gh-pages`로 페이지를 갱신한다.
 
 ## 다운로드 안내 페이지
 - `site/index.html`: 한 장짜리 정적 페이지. GitHub Pages(`/site` 폴더) 또는 Cloudflare Pages에 올린다.
