@@ -7,11 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.jadennam.glucose.BuildConfig
 import com.jadennam.glucose.container
 import com.jadennam.glucose.data.DayRecords
+import com.jadennam.glucose.data.HealthAvailability
+import com.jadennam.glucose.data.HealthConnectSource
 import com.jadennam.glucose.data.PeriodDetail
 import com.jadennam.glucose.domain.backup.BackupCodec
 import com.jadennam.glucose.domain.backup.BackupFormatException
 import com.jadennam.glucose.domain.estimation.Estimate
 import com.jadennam.glucose.domain.estimation.GlucoseEstimator
+import com.jadennam.glucose.domain.health.HealthPeriodSummary
+import com.jadennam.glucose.domain.health.HealthSummarizer
 import com.jadennam.glucose.domain.model.AppSettings
 import com.jadennam.glucose.domain.model.Exercise
 import com.jadennam.glucose.domain.model.ExerciseType
@@ -105,6 +109,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         today.value = LocalDate.now(c.clock)
         _kakaoLoggedIn.value = c.kakao.hasToken()
         reschedule()
+        refreshHealth()
     }
 
     private fun reschedule() = viewModelScope.launch(Dispatchers.IO) {
@@ -189,6 +194,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             say("파일을 읽을 수 없습니다")
         }
+    }
+
+    // --- Samsung Health (Health Connect, read-only) ---
+    data class HealthStatus(val availability: HealthAvailability, val granted: Set<String>, val requested: Set<String>) {
+        val connected get() = availability == HealthAvailability.AVAILABLE && granted.any { it in HealthConnectSource.CORE_PERMISSIONS }
+        val missing get() = requested - granted
+    }
+
+    private val _healthStatus = MutableStateFlow(HealthStatus(HealthAvailability.NOT_INSTALLED, emptySet(), emptySet()))
+    val healthStatus: StateFlow<HealthStatus> = _healthStatus.asStateFlow()
+    private val _healthToday = MutableStateFlow<HealthPeriodSummary?>(null)
+    val healthToday: StateFlow<HealthPeriodSummary?> = _healthToday.asStateFlow()
+
+    fun refreshHealth() = viewModelScope.launch(Dispatchers.IO) {
+        val h = c.health
+        val availability = h.availability()
+        val granted = if (availability == HealthAvailability.AVAILABLE) h.grantedPermissions() else emptySet()
+        _healthStatus.value = HealthStatus(availability, granted, h.requestedPermissions())
+        _healthToday.value = healthSummary(today.value, today.value.plusDays(1))
+    }
+
+    /** Null when Health Connect is unavailable or not permitted. */
+    suspend fun healthSummary(start: LocalDate, endExclusive: LocalDate): HealthPeriodSummary? = withContext(Dispatchers.IO) {
+        c.health.read(start, endExclusive, zone())?.let { HealthSummarizer.summarize(it, start, endExclusive, zone()) }
     }
 
     // --- Kakao ---

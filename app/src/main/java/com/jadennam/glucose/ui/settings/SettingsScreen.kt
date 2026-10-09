@@ -54,6 +54,7 @@ import com.jadennam.glucose.ui.components.SectionCard
 import com.jadennam.glucose.ui.components.Segmented
 import com.jadennam.glucose.ui.components.SwitchRow
 import com.jadennam.glucose.ui.components.TimePickerDialog
+import com.jadennam.glucose.ui.health.SamsungHealthSettings
 
 @Composable
 fun SettingsScreen(vm: MainViewModel, profile: Profile) {
@@ -101,6 +102,8 @@ fun SettingsScreen(vm: MainViewModel, profile: Profile) {
         RangeSection(settings, profile.glucoseUnit) { vm.saveSettings(settings.copy(ranges = it)) }
 
         SectionCard("알림 안정성") { PermissionPanel(vm) }
+
+        SamsungHealthSettings(vm)
 
         KakaoSection(vm, settings, ::save)
 

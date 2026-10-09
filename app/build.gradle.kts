@@ -29,8 +29,8 @@ android {
         applicationId = "com.jadennam.glucose"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"$kakaoKey\"")
         manifestPlaceholders["kakaoScheme"] = if (kakaoKey.isNotEmpty()) "kakao$kakaoKey" else "kakaodisabled"
@@ -103,6 +103,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kakao.user)
     implementation(libs.kakao.talk)
+    implementation(libs.health.connect)
 
     testImplementation(libs.junit)
 }

@@ -3,6 +3,7 @@ package com.jadennam.glucose
 import android.app.Application
 import android.content.Context
 import com.jadennam.glucose.data.AppDatabase
+import com.jadennam.glucose.data.HealthConnectSource
 import com.jadennam.glucose.data.Repository
 import com.jadennam.glucose.notify.AlarmScheduler
 import com.jadennam.glucose.notify.KakaoClient
@@ -25,6 +26,7 @@ class AppContainer(context: Context) {
     val notifier = Notifier(context)
     val scheduler = AlarmScheduler(context, repository, clock)
     val kakao = KakaoClient(context)
+    val health = HealthConnectSource(context)
 }
 
 class GlucoseApp : Application() {

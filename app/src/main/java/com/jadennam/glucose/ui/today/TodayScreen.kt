@@ -47,6 +47,7 @@ import com.jadennam.glucose.ui.components.Hint
 import com.jadennam.glucose.ui.components.LevelDot
 import com.jadennam.glucose.ui.components.SectionCard
 import com.jadennam.glucose.ui.components.TimePickerDialog
+import com.jadennam.glucose.ui.health.SamsungHealthTodayCard
 import com.jadennam.glucose.ui.theme.LevelColors
 import java.time.Instant
 import java.time.LocalDate
@@ -81,6 +82,7 @@ fun TodayScreen(vm: MainViewModel, profile: Profile, focus: String?, consumeFocu
         MealCard(vm, today)
         ExerciseCard(vm)
         WeightCard(vm, profile.unitSystem)
+        SamsungHealthTodayCard(vm, profile.unitSystem)
         MedicationCard(vm, today)
 
         SectionCard("오늘 기록") {

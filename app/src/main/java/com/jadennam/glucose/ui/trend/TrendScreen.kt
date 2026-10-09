@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jadennam.glucose.data.PeriodDetail
 import com.jadennam.glucose.domain.estimation.Estimate
+import com.jadennam.glucose.domain.health.HealthPeriodSummary
 import com.jadennam.glucose.domain.model.GlucoseRanges
 import com.jadennam.glucose.domain.model.GlucoseUnit
 import com.jadennam.glucose.domain.model.MeasureContext
@@ -51,6 +52,7 @@ import com.jadennam.glucose.ui.components.Hint
 import com.jadennam.glucose.ui.components.LevelDot
 import com.jadennam.glucose.ui.components.SectionCard
 import com.jadennam.glucose.ui.components.Segmented
+import com.jadennam.glucose.ui.health.HealthSummaryLines
 import com.jadennam.glucose.ui.theme.LevelColors
 import com.jadennam.glucose.ui.today.MedText
 import java.util.Locale
@@ -62,10 +64,13 @@ fun TrendScreen(vm: MainViewModel, profile: Profile) {
     val estimates by vm.estimates.collectAsState()
     var selected by remember(trend.period) { mutableStateOf<Int?>(null) }
     var detail by remember { mutableStateOf<Pair<TrendBucket, PeriodDetail>?>(null) }
+    var health by remember { mutableStateOf<HealthPeriodSummary?>(null) }
+    val healthStatus by vm.healthStatus.collectAsState()
     val unit = profile.glucoseUnit
 
     LaunchedEffect(selected, trend.buckets) {
         val b = selected?.let { trend.buckets.getOrNull(it) }
+        health = b?.let { vm.healthSummary(it.start, it.endExclusive) }
         detail = b?.let { it to vm.periodDetail(it) }
     }
 
@@ -92,7 +97,7 @@ fun TrendScreen(vm: MainViewModel, profile: Profile) {
 
     detail?.let { (bucket, d) ->
         ModalBottomSheet(onDismissRequest = { selected = null }) {
-            DetailSheet(vm, bucket, d, profile, settings.ranges)
+            DetailSheet(vm, bucket, d, profile, settings.ranges, health, healthStatus.connected)
         }
     }
 }
@@ -106,7 +111,10 @@ private fun Legend() {
 }
 
 @Composable
-private fun DetailSheet(vm: MainViewModel, b: TrendBucket, d: PeriodDetail, profile: Profile, ranges: GlucoseRanges) {
+private fun DetailSheet(
+    vm: MainViewModel, b: TrendBucket, d: PeriodDetail, profile: Profile, ranges: GlucoseRanges,
+    health: HealthPeriodSummary?, healthConnected: Boolean,
+) {
     val unit = profile.glucoseUnit
     val title = if (b.endExclusive == b.start.plusDays(1)) Labels.date(b.start) else "${Labels.date(b.start)} ~ ${Labels.date(b.endExclusive.minusDays(1))}"
     val meds by vm.medications.collectAsState()
@@ -133,6 +141,13 @@ private fun DetailSheet(vm: MainViewModel, b: TrendBucket, d: PeriodDetail, prof
         Text("💊 복용 약", fontWeight = FontWeight.SemiBold)
         if (activeMeds.isEmpty()) Hint("없음")
         activeMeds.forEach { m -> Text("${m.name} — ${MedText.dose(m)} (${MedText.period(m)})") }
+        HorizontalDivider()
+        Text("📱 삼성 헬스", fontWeight = FontWeight.SemiBold)
+        when {
+            !healthConnected -> Hint("연결되지 않음 (설정 → 삼성 헬스 연결)")
+            health == null -> Hint("데이터 없음")
+            else -> HealthSummaryLines(health, profile.unitSystem, vm, singleDay = b.endExclusive == b.start.plusDays(1))
+        }
     }
 }
 

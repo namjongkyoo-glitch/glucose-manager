@@ -23,6 +23,7 @@ CGM 없이 쓰는 개인용 혈당 기록·알림·추세 Android 앱(Kotlin + J
 - 백업 파일에는 `backupVersion` 필드를 둔다. 복원은 이전 버전 포맷도 읽을 수 있어야 한다.
 - 도메인 로직(estimation, schedule, units, backup)은 Android 의존성이 없는 순수 Kotlin으로 쓴다. Clock과 Random은 주입받는다.
 - 카카오 발송이 실패해도 앱 자체 알림은 반드시 나간다(카카오는 보조 채널).
+- 삼성 헬스(Health Connect)는 **읽기 전용**이다. 읽은 값은 DB·백업에 저장하지 않고, 앱 기록과 섞지 않으며, 카카오 메시지에 넣지 않는다.
 
 ## 함정
 - 앱 전용 저장소(`filesDir`, `getExternalFilesDir`)는 **삭제 시 함께 지워진다.** 백업은 반드시 SAF(`ACTION_CREATE_DOCUMENT`)로 사용자가 고른 위치에 저장한다.
