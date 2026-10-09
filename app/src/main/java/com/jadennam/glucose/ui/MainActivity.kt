@@ -31,11 +31,12 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.jadennam.glucose.notify.Notifier
 import com.jadennam.glucose.ui.onboarding.OnboardingScreen
 import com.jadennam.glucose.ui.settings.SettingsScreen
+import com.jadennam.glucose.ui.summary.SummaryScreen
 import com.jadennam.glucose.ui.theme.GlucoseTheme
 import com.jadennam.glucose.ui.today.TodayScreen
 import com.jadennam.glucose.ui.trend.TrendScreen
 
-enum class Tab(val label: String, val icon: String) { TODAY("오늘", "🩸"), TREND("추세", "📈"), SETTINGS("설정", "⚙️") }
+enum class Tab(val label: String, val icon: String) { SUMMARY("요약", "📋"), RECORD("기록", "✏️"), TREND("추세", "📈"), SETTINGS("설정", "⚙️") }
 
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
@@ -72,13 +73,13 @@ private fun AppRoot(vm: MainViewModel, openRequest: String?, consumeOpen: () -> 
             Box(Modifier.padding(pad)) { OnboardingScreen(vm) }
         }
         is ProfileState.Ready -> {
-            var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
+            var tab by rememberSaveable { mutableStateOf(Tab.SUMMARY) }
             var focus by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(openRequest) {
                 when (openRequest) {
                     null -> Unit
                     Notifier.OPEN_SETTINGS -> tab = Tab.SETTINGS
-                    else -> { tab = Tab.TODAY; focus = openRequest }
+                    else -> { tab = Tab.RECORD; focus = openRequest }
                 }
                 if (openRequest != null) consumeOpen()
             }
@@ -99,7 +100,8 @@ private fun AppRoot(vm: MainViewModel, openRequest: String?, consumeOpen: () -> 
             ) { pad ->
                 Box(Modifier.padding(pad).fillMaxSize()) {
                     when (tab) {
-                        Tab.TODAY -> TodayScreen(vm, s.profile, focus) { focus = null }
+                        Tab.SUMMARY -> SummaryScreen(vm, s.profile)
+                        Tab.RECORD -> TodayScreen(vm, s.profile, focus) { focus = null }
                         Tab.TREND -> TrendScreen(vm, s.profile)
                         Tab.SETTINGS -> SettingsScreen(vm, s.profile)
                     }

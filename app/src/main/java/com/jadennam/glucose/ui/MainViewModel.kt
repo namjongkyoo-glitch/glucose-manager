@@ -16,6 +16,8 @@ import com.jadennam.glucose.domain.estimation.Estimate
 import com.jadennam.glucose.domain.estimation.GlucoseEstimator
 import com.jadennam.glucose.domain.health.HealthPeriodSummary
 import com.jadennam.glucose.domain.health.HealthSummarizer
+import com.jadennam.glucose.domain.summary.GlucoseSummary
+import com.jadennam.glucose.domain.summary.SummaryCalculator
 import com.jadennam.glucose.domain.model.AppSettings
 import com.jadennam.glucose.domain.model.Exercise
 import com.jadennam.glucose.domain.model.ExerciseType
@@ -30,6 +32,7 @@ import com.jadennam.glucose.domain.schedule.PlannedAlarm
 import com.jadennam.glucose.domain.trend.TrendAggregator
 import com.jadennam.glucose.domain.trend.TrendBucket
 import com.jadennam.glucose.domain.trend.TrendPeriod
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +43,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -219,6 +223,59 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun healthSummary(start: LocalDate, endExclusive: LocalDate): HealthPeriodSummary? = withContext(Dispatchers.IO) {
         c.health.read(start, endExclusive, zone())?.let { HealthSummarizer.summarize(it, start, endExclusive, zone()) }
     }
+
+    // --- Summary (first tab) ---
+    enum class SummaryPeriod { YESTERDAY, LAST_7_DAYS }
+
+    data class SummaryState(
+        val period: SummaryPeriod,
+        val start: LocalDate,
+        val endExclusive: LocalDate,
+        val glucose: GlucoseSummary,
+        val daily: List<TrendBucket>,
+        val mealCount: Int,
+        val exerciseCount: Int,
+        val exerciseMinutes: Int,
+        val activeMedications: List<Medication>,
+        val health: HealthPeriodSummary?,
+    )
+
+    private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
+    private val summaryPeriod = MutableStateFlow(
+        runCatching { SummaryPeriod.valueOf(prefs.getString("summary_period", null) ?: "") }.getOrDefault(SummaryPeriod.YESTERDAY),
+    )
+
+    fun setSummaryPeriod(p: SummaryPeriod) {
+        summaryPeriod.value = p
+        prefs.edit { putString("summary_period", p.name) }
+    }
+
+    private data class SummaryInputs(val period: SummaryPeriod, val today: LocalDate, val settings: AppSettings, val meds: List<Medication>)
+
+    // Recomputes when the period, date, any reading, today's records, Health Connect status or medications change.
+    val summary: StateFlow<SummaryState?> =
+        combine(
+            combine(summaryPeriod, today, repo.allReadings, settings, todayRecords) { p, t, _, s, _ -> Triple(p, t, s) },
+            healthStatus,
+            medications,
+        ) { (p, t, s), _, meds -> SummaryInputs(p, t, s, meds) }
+        .mapLatest { (p, t, s, meds) ->
+            val (start, end) = when (p) {
+                SummaryPeriod.YESTERDAY -> t.minusDays(1) to t
+                SummaryPeriod.LAST_7_DAYS -> t.minusDays(6) to t.plusDays(1)
+            }
+            val d = withContext(Dispatchers.IO) { repo.periodDetail(start, end) }
+            SummaryState(
+                period = p, start = start, endExclusive = end,
+                glucose = SummaryCalculator.glucose(d.readings, s.ranges),
+                daily = if (p == SummaryPeriod.LAST_7_DAYS) TrendAggregator.buckets(d.readings, TrendPeriod.WEEK, t) else emptyList(),
+                mealCount = d.meals.size,
+                exerciseCount = d.exercises.size,
+                exerciseMinutes = d.exercises.sumOf { it.durationMinutes },
+                activeMedications = meds.filter { it.overlaps(start, end) },
+                health = healthSummary(start, end),
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // --- Kakao ---
     fun kakaoLogin(activity: android.app.Activity) = viewModelScope.launch {

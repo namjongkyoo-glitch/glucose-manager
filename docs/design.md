@@ -150,3 +150,9 @@ com.jadennam.glucose
 - 라이브러리: `androidx.health.connect:connect-client:1.1.0` (minCompileSdk 36, AGP 8.9.1 이상이라 현재 툴체인과 호환된다).
 - 실패 처리: 미설치, 권한 없음, 읽기 오류가 나면 null을 반환하고 카드에 "연결 필요"나 "데이터 없음"만 표시한다. 다른 기능에는 영향이 없다.
 - 테스트: `HealthSummarizer`(수면 병합·귀속, 기간 합계·평균, 체중 최신값)를 순수 Kotlin 단위 테스트로 검증한다. 실제로 읽어 오는지는 실기기에서 확인한다.
+
+## 14. v1.2.0 — 요약 첫 화면 (2026-10-09)
+- 탭: 요약 → 기록(기존 입력 화면) → 추세 → 설정. 앱을 열면 요약이 나오고, 알림을 누르면 기록 탭이 열린다.
+- 요약 기간: 어제(기본) / 최근 7일(오늘 포함). 마지막 선택은 SharedPreferences `ui.summary_period`에 저장한다. 건강 데이터가 아닌 UI 설정이라 백업 대상이 아니다.
+- 계산: `SummaryCalculator`(순수 Kotlin)가 평균·최저·최고·횟수, 범위별 비율(최대 나머지 반올림으로 합계 100%), 측정 상황별 평균을 낸다. 날짜별 평균은 기존 `TrendAggregator`를 재사용한다.
+- 데이터: `Repository.periodDetail` + 복용 약 + Health Connect 요약. DB 변경은 없다.
