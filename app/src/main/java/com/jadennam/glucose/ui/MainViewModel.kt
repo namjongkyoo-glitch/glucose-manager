@@ -16,6 +16,10 @@ import com.jadennam.glucose.domain.estimation.Estimate
 import com.jadennam.glucose.domain.estimation.GlucoseEstimator
 import com.jadennam.glucose.domain.health.HealthPeriodSummary
 import com.jadennam.glucose.domain.health.HealthSummarizer
+import com.jadennam.glucose.domain.health.GlucoseImport
+import com.jadennam.glucose.domain.medication.RegimenChange
+import com.jadennam.glucose.domain.medication.RegimenItem
+import com.jadennam.glucose.domain.medication.RegimenTimeline
 import com.jadennam.glucose.domain.summary.GlucoseSummary
 import com.jadennam.glucose.domain.summary.SummaryCalculator
 import com.jadennam.glucose.domain.model.AppSettings
@@ -143,24 +147,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         repo.addReading(GlucoseReading(valueMgDl = valueMgDl, measuredAt = at, zoneId = zone().id, context = context, hoursAfterMeal = hoursAfterMeal))
         c.notifier.cancel(com.jadennam.glucose.notify.Notifier.ID_MEASURE)
         c.notifier.cancel(com.jadennam.glucose.notify.Notifier.ID_REMIND)
-        say("혈당을 기록했습니다")
+        say(savedMessage(at, "혈당"))
     }
 
     fun addMeal(types: List<MealType>, note: String?, at: Long) = viewModelScope.launch(Dispatchers.IO) {
         repo.addMeal(Meal(eatenAt = at, zoneId = zone().id, types = types, note = note?.takeIf { it.isNotBlank() }))
         c.notifier.cancel(com.jadennam.glucose.notify.Notifier.ID_MEAL)
-        say("식사를 기록했습니다")
+        say(savedMessage(at, "식사"))
     }
 
-    fun addExercise(type: ExerciseType, minutes: Int) = viewModelScope.launch(Dispatchers.IO) {
-        repo.addExercise(Exercise(performedAt = now(), zoneId = zone().id, type = type, durationMinutes = minutes))
+    fun addExercise(type: ExerciseType, minutes: Int, at: Long) = viewModelScope.launch(Dispatchers.IO) {
+        repo.addExercise(Exercise(performedAt = at, zoneId = zone().id, type = type, durationMinutes = minutes))
         c.notifier.cancel(com.jadennam.glucose.notify.Notifier.ID_EXERCISE)
-        say("운동을 기록했습니다")
+        say(savedMessage(at, "운동"))
     }
 
-    fun addWeight(kg: Double) = viewModelScope.launch(Dispatchers.IO) {
-        repo.addWeight(WeightEntry(measuredAt = now(), zoneId = zone().id, weightKg = kg))
-        say("몸무게를 기록했습니다")
+    fun addWeight(kg: Double, at: Long) = viewModelScope.launch(Dispatchers.IO) {
+        repo.addWeight(WeightEntry(measuredAt = at, zoneId = zone().id, weightKg = kg))
+        say(savedMessage(at, "몸무게"))
     }
 
     fun deleteReading(id: Long) = viewModelScope.launch(Dispatchers.IO) { repo.deleteReading(id) }
@@ -168,7 +172,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteExercise(id: Long) = viewModelScope.launch(Dispatchers.IO) { repo.deleteExercise(id) }
     fun deleteWeight(id: Long) = viewModelScope.launch(Dispatchers.IO) { repo.deleteWeight(id) }
 
+    private fun savedMessage(at: Long, what: String): String {
+        val date = java.time.Instant.ofEpochMilli(at).atZone(zone()).toLocalDate()
+        return if (date == today.value) "${what}을(를) 기록했습니다" else "${Labels.date(date)} ${what}을(를) 기록했습니다"
+    }
+
     fun saveMedication(m: Medication) = viewModelScope.launch(Dispatchers.IO) { repo.saveMedication(m); say("복용 약을 저장했습니다") }
+
+    /** New prescription: previous medications end the day before [start]. Calls [onDone] only on success. */
+    fun applyRegimen(items: List<RegimenItem>, start: LocalDate, end: LocalDate?, onDone: () -> Unit) = viewModelScope.launch(Dispatchers.IO) {
+        when (val r = RegimenTimeline.apply(repo.allMedications(), items, start, end)) {
+            is RegimenChange.Rejected -> say(r.reason)
+            is RegimenChange.Ok -> {
+                repo.applyRegimen(r.ended, r.added)
+                say(if (r.ended.isEmpty()) "새 처방을 저장했습니다" else "새 처방을 저장했습니다. 이전 약 ${r.ended.size}개는 ${start.minusDays(1)}에 종료했습니다")
+                withContext(Dispatchers.Main) { onDone() }
+            }
+        }
+    }
+
+    /** User-initiated copy of Samsung Health glucose into app readings (duplicates skipped). */
+    fun importSamsungGlucose() = viewModelScope.launch(Dispatchers.IO) {
+        val now = java.time.Instant.ofEpochMilli(now())
+        val incoming = c.health.readGlucose(now.minus(java.time.Duration.ofDays(3650)), now.plusSeconds(60))
+        if (incoming == null) {
+            say("삼성 헬스 혈당을 읽을 수 없습니다. 혈당 권한을 확인하세요.")
+            return@launch
+        }
+        val plan = GlucoseImport.plan(repo.allReadings(), incoming)
+        repo.addReadings(plan.toInsert)
+        say("삼성 헬스 혈당 ${plan.toInsert.size}건을 가져왔습니다" + if (plan.duplicates > 0) " (이미 있는 ${plan.duplicates}건 제외)" else "")
+    }
     fun deleteMedication(id: Long) = viewModelScope.launch(Dispatchers.IO) { repo.deleteMedication(id) }
 
     suspend fun periodDetail(bucket: TrendBucket): PeriodDetail =

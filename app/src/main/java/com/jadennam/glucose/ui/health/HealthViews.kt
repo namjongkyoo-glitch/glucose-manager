@@ -80,7 +80,7 @@ fun SamsungHealthSettings(vm: MainViewModel) {
     fun open(intent: Intent) = try { context.startActivity(intent) } catch (_: ActivityNotFoundException) { }
 
     SectionCard("📱 삼성 헬스 연결 (읽기 전용)") {
-        Hint("걸음 수·운동·수면·체중을 Health Connect를 통해 읽어 옵니다. 앱 DB에 복사하거나 밖으로 보내지 않습니다.")
+        Hint("걸음 수·운동·수면·체중을 Health Connect를 통해 읽어 옵니다(앱에 저장하지 않음). 혈당은 아래 버튼을 눌렀을 때만 앱 기록으로 복사합니다. 어떤 데이터도 밖으로 보내지 않습니다.")
         when (status.availability) {
             HealthAvailability.NOT_INSTALLED, HealthAvailability.UPDATE_REQUIRED -> {
                 Text(if (status.availability == HealthAvailability.NOT_INSTALLED) "Health Connect가 설치되어 있지 않습니다." else "Health Connect 업데이트가 필요합니다.")
@@ -101,10 +101,15 @@ fun SamsungHealthSettings(vm: MainViewModel) {
                     GradientButton("권한 허용하기", { permissionLauncher.launch(status.requested) }, Modifier.fillMaxWidth())
                 }
                 OutlinedButton(onClick = { open(Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)) }) { Text("Health Connect 설정 열기") }
+                if (status.connected) {
+                    Text("삼성 헬스 혈당", style = MaterialTheme.typography.labelLarge)
+                    Hint("삼성 헬스에 기록한 혈당을 앱 혈당 기록으로 복사합니다. 이미 있는 값(같은 시각·같은 수치)은 건너뛰므로 여러 번 눌러도 됩니다. 가져온 기록에는 \"삼성 헬스\" 메모가 붙습니다.")
+                    OutlinedButton(onClick = { vm.importSamsungGlucose() }) { Text("삼성 헬스 혈당 가져오기") }
+                }
             }
         }
         Text("삼성 헬스 쪽 설정 (1회)", style = MaterialTheme.typography.labelLarge)
-        Hint("삼성 헬스 앱 → 설정 → Health Connect → 걸음 수·운동·수면·체중을 Health Connect와 공유하도록 켜세요.")
+        Hint("삼성 헬스 앱 → 설정 → Health Connect → 걸음 수·운동·수면·체중·혈당을 Health Connect와 공유하도록 켜세요.")
         Hint("과거 기록 권한을 허용하면 30일 이전 자료도 추세에 표시됩니다.")
     }
 }

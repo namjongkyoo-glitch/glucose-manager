@@ -41,6 +41,7 @@ import com.jadennam.glucose.notify.Notifier
 import com.jadennam.glucose.ui.Labels
 import com.jadennam.glucose.ui.MainViewModel
 import com.jadennam.glucose.ui.components.ChipGroup
+import com.jadennam.glucose.ui.components.DateField
 import com.jadennam.glucose.ui.components.GradientButton
 import com.jadennam.glucose.ui.components.HSpace
 import com.jadennam.glucose.ui.components.Hint
@@ -52,7 +53,7 @@ import com.jadennam.glucose.ui.theme.LevelColors
 import java.time.Instant
 import java.time.LocalDate
 
-private val DURATIONS = listOf(15, 30, 45, 60, 90)
+private val DURATIONS = listOf(15, 30, 45, 60, 90, 120, 180, 240)
 
 @Composable
 fun TodayScreen(vm: MainViewModel, profile: Profile, focus: String?, consumeFocus: () -> Unit) {
@@ -78,8 +79,8 @@ fun TodayScreen(vm: MainViewModel, profile: Profile, focus: String?, consumeFocu
         Text(Labels.date(today), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Hint(next?.let { "다음 알림: " + Labels.dateTime(it.triggerAt, vm.zone()) } ?: "예정된 알림이 없습니다 (설정에서 측정 스케줄을 켜세요)")
 
-        GlucoseCard(vm, profile, today, glucoseFocus)
-        MealCard(vm, today)
+        GlucoseCard(vm, profile, glucoseFocus)
+        MealCard(vm)
         ExerciseCard(vm)
         WeightCard(vm, profile.unitSystem)
         SamsungHealthTodayCard(vm, profile.unitSystem)
@@ -114,29 +115,47 @@ private fun RecordRow(text: String, dot: androidx.compose.ui.graphics.Color? = n
     }
 }
 
-/** Minute-of-day picker that defaults to "now"; see [epochAt]. */
+/**
+ * Date + time of a record. Both null = "now". Picking only a date keeps the current time of day.
+ * Values are epochDay / minute-of-day so they survive configuration changes.
+ */
 @Composable
-private fun TimeChooser(vm: MainViewModel, minute: Int?, onPick: (Int?) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(if (minute == null) "시각: 지금" else "시각: ${Labels.minute(minute)}", Modifier.weight(1f))
-        TextButton(onClick = { open = true }) { Text("변경") }
-        if (minute != null) TextButton(onClick = { onPick(null) }) { Text("지금으로") }
+private fun WhenChooser(vm: MainViewModel, epochDay: Long?, minute: Int?, onChange: (Long?, Int?) -> Unit) {
+    var openTime by remember { mutableStateOf(false) }
+    val nowZoned = Instant.ofEpochMilli(vm.now()).atZone(vm.zone())
+    val nowMinute = nowZoned.hour * 60 + nowZoned.minute
+    val date = epochDay?.let(LocalDate::ofEpochDay)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        DateField("날짜", date ?: nowZoned.toLocalDate(), { d -> onChange(d.toEpochDay(), minute ?: nowMinute) }, Modifier.weight(1.3f))
+        OutlinedButton(onClick = { openTime = true }, modifier = Modifier.weight(1f)) {
+            Text(if (minute == null) "지금" else Labels.minute(minute))
+        }
     }
-    if (open) {
-        val nowMinute = Instant.ofEpochMilli(vm.now()).atZone(vm.zone()).let { it.hour * 60 + it.minute }
-        TimePickerDialog(minute ?: nowMinute, { open = false }) { onPick(it); open = false }
+    if (epochDay != null || minute != null) {
+        TextButton(onClick = { onChange(null, null) }) { Text("지금으로 되돌리기") }
+    }
+    if (isFuture(vm, epochDay, minute)) Hint("⚠️ 미래 시각은 기록할 수 없습니다.")
+    if (openTime) {
+        TimePickerDialog(minute ?: nowMinute, { openTime = false }) { m -> onChange(epochDay, m); openTime = false }
     }
 }
 
-private fun epochAt(vm: MainViewModel, date: LocalDate, minute: Int?): Long =
-    if (minute == null) vm.now() else date.atTime(minute / 60, minute % 60).atZone(vm.zone()).toInstant().toEpochMilli()
+private fun epochAt(vm: MainViewModel, epochDay: Long?, minute: Int?): Long {
+    if (epochDay == null && minute == null) return vm.now()
+    val now = Instant.ofEpochMilli(vm.now()).atZone(vm.zone())
+    val d = epochDay?.let(LocalDate::ofEpochDay) ?: now.toLocalDate()
+    val m = minute ?: (now.hour * 60 + now.minute)
+    return d.atTime(m / 60, m % 60).atZone(vm.zone()).toInstant().toEpochMilli()
+}
+
+private fun isFuture(vm: MainViewModel, epochDay: Long?, minute: Int?) = epochAt(vm, epochDay, minute) > vm.now() + 60_000
 
 @Composable
-private fun GlucoseCard(vm: MainViewModel, profile: Profile, date: LocalDate, focus: FocusRequester) {
+private fun GlucoseCard(vm: MainViewModel, profile: Profile, focus: FocusRequester) {
     var value by rememberSaveable { mutableStateOf("") }
     var context by rememberSaveable { mutableStateOf(MeasureContext.FASTING) }
     var hours by rememberSaveable { mutableIntStateOf(2) }
+    var day by rememberSaveable { mutableStateOf<Long?>(null) }
     var minute by rememberSaveable { mutableStateOf<Int?>(null) }
     val parsed = UnitConverter.parseGlucose(value, profile.glucoseUnit)
 
@@ -153,21 +172,22 @@ private fun GlucoseCard(vm: MainViewModel, profile: Profile, date: LocalDate, fo
         if (context == MeasureContext.AFTER_MEAL) {
             ChipGroup(listOf(1, 2, 3), { "${it}시간" }, { it == hours }) { hours = it }
         }
-        TimeChooser(vm, minute) { minute = it }
+        WhenChooser(vm, day, minute) { d, m -> day = d; minute = m }
         GradientButton("저장", {
             parsed?.let {
-                vm.addReading(it, context, if (context == MeasureContext.AFTER_MEAL) hours else null, epochAt(vm, date, minute))
-                value = ""; minute = null
+                vm.addReading(it, context, if (context == MeasureContext.AFTER_MEAL) hours else null, epochAt(vm, day, minute))
+                value = ""; day = null; minute = null
             }
-        }, Modifier.fillMaxWidth(), enabled = parsed != null)
+        }, Modifier.fillMaxWidth(), enabled = parsed != null && !isFuture(vm, day, minute))
     }
 }
 
 @Composable
-private fun MealCard(vm: MainViewModel, date: LocalDate) {
+private fun MealCard(vm: MainViewModel) {
     var selected by rememberSaveable { mutableStateOf(listOf<MealType>()) }
     var note by rememberSaveable { mutableStateOf("") }
     var showNote by rememberSaveable { mutableStateOf(false) }
+    var day by rememberSaveable { mutableStateOf<Long?>(null) }
     var minute by rememberSaveable { mutableStateOf<Int?>(null) }
 
     SectionCard("🍚 식사 기록") {
@@ -180,24 +200,53 @@ private fun MealCard(vm: MainViewModel, date: LocalDate) {
         } else {
             TextButton(onClick = { showNote = true }) { Text("+ 직접 입력") }
         }
-        TimeChooser(vm, minute) { minute = it }
+        WhenChooser(vm, day, minute) { d, m -> day = d; minute = m }
         GradientButton("저장", {
-            vm.addMeal(selected, note, epochAt(vm, date, minute))
-            selected = emptyList(); note = ""; showNote = false; minute = null
-        }, Modifier.fillMaxWidth(), enabled = selected.isNotEmpty() || note.isNotBlank())
+            vm.addMeal(selected, note, epochAt(vm, day, minute))
+            selected = emptyList(); note = ""; showNote = false; day = null; minute = null
+        }, Modifier.fillMaxWidth(), enabled = (selected.isNotEmpty() || note.isNotBlank()) && !isFuture(vm, day, minute))
     }
+}
+
+private const val MAX_EXERCISE_MINUTES = 600
+
+private fun durationLabel(m: Int): String = when {
+    m < 60 -> "${m}분"
+    m % 60 == 0 -> "${m / 60}시간"
+    else -> "${m / 60}시간 ${m % 60}분"
 }
 
 @Composable
 private fun ExerciseCard(vm: MainViewModel) {
     var type by rememberSaveable { mutableStateOf<ExerciseType?>(null) }
+    var manual by rememberSaveable { mutableStateOf("") }
+    var day by rememberSaveable { mutableStateOf<Long?>(null) }
+    var minute by rememberSaveable { mutableStateOf<Int?>(null) }
+    val manualMinutes = manual.trim().toIntOrNull()?.takeIf { it in 1..MAX_EXERCISE_MINUTES }
+    val future = isFuture(vm, day, minute)
+
+    fun save(m: Int) {
+        vm.addExercise(type!!, m, epochAt(vm, day, minute))
+        type = null; manual = ""; day = null; minute = null
+    }
+
     SectionCard("🏃 운동 기록") {
-        Hint("종류를 누른 뒤 시간을 누르면 바로 저장됩니다.")
+        Hint("종류를 누른 뒤 시간을 누르면 바로 저장됩니다. 다른 날짜·시각은 먼저 바꾸세요.")
         ChipGroup(ExerciseType.entries, Labels::exercise, { it == type }) { type = it }
         if (type != null) {
-            ChipGroup(DURATIONS, { "${it}분" }, { false }) { m ->
-                vm.addExercise(type!!, m)
-                type = null
+            WhenChooser(vm, day, minute) { d, m -> day = d; minute = m }
+            ChipGroup(DURATIONS, ::durationLabel, { false }) { m -> if (!future) save(m) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    manual, { manual = it.filter(Char::isDigit).take(3) },
+                    label = { Text("직접 입력 (분, 최대 $MAX_EXERCISE_MINUTES)") },
+                    singleLine = true,
+                    isError = manual.isNotBlank() && manualMinutes == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+                HSpace()
+                OutlinedButton(onClick = { manualMinutes?.let(::save) }, enabled = manualMinutes != null && !future) { Text("저장") }
             }
         }
     }
@@ -206,6 +255,8 @@ private fun ExerciseCard(vm: MainViewModel) {
 @Composable
 private fun WeightCard(vm: MainViewModel, system: UnitSystem) {
     var value by rememberSaveable { mutableStateOf("") }
+    var day by rememberSaveable { mutableStateOf<Long?>(null) }
+    var minute by rememberSaveable { mutableStateOf<Int?>(null) }
     val weights by vm.weights.collectAsState()
     val kg = value.replace(',', '.').toDoubleOrNull()?.let { if (system == UnitSystem.US) UnitConverter.lbToKg(it) else it }?.takeIf { it in 20.0..300.0 }
     SectionCard("⚖️ 몸무게") {
@@ -219,7 +270,11 @@ private fun WeightCard(vm: MainViewModel, system: UnitSystem) {
                 modifier = Modifier.weight(1f),
             )
             HSpace()
-            OutlinedButton(onClick = { kg?.let { vm.addWeight(it); value = "" } }, enabled = kg != null) { Text("저장") }
+            OutlinedButton(
+                onClick = { kg?.let { vm.addWeight(it, epochAt(vm, day, minute)); value = ""; day = null; minute = null } },
+                enabled = kg != null && !isFuture(vm, day, minute),
+            ) { Text("저장") }
         }
+        WhenChooser(vm, day, minute) { d, m -> day = d; minute = m }
     }
 }

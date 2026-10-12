@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.BloodGlucoseRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.SleepSessionRecord
@@ -12,10 +13,13 @@ import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import com.jadennam.glucose.domain.health.ExternalGlucose
 import com.jadennam.glucose.domain.health.HealthData
 import com.jadennam.glucose.domain.health.HealthExercise
 import com.jadennam.glucose.domain.health.HealthSleep
 import com.jadennam.glucose.domain.health.HealthWeight
+import com.jadennam.glucose.domain.health.MealRelation
+import java.time.Instant
 import java.time.LocalDate
 import java.time.Period
 import java.time.ZoneId
@@ -37,6 +41,7 @@ class HealthConnectSource(private val context: Context) {
             HealthPermission.getReadPermission(ExerciseSessionRecord::class),
             HealthPermission.getReadPermission(SleepSessionRecord::class),
             HealthPermission.getReadPermission(WeightRecord::class),
+            HealthPermission.getReadPermission(BloodGlucoseRecord::class),
         )
         const val HISTORY_PERMISSION = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY
     }
@@ -100,6 +105,32 @@ class HealthConnectSource(private val context: Context) {
             } else emptyList()
 
             HealthData(steps, sleeps, exercises, weights)
+        }.getOrNull()
+    }
+
+
+    /**
+     * All blood glucose samples in [from, to) for the user-initiated import.
+     * Returns null when Health Connect is unavailable or the glucose permission is missing.
+     */
+    suspend fun readGlucose(from: Instant, to: Instant): List<ExternalGlucose>? {
+        val c = client() ?: return null
+        if (HealthPermission.getReadPermission(BloodGlucoseRecord::class) !in grantedPermissions()) return null
+        return runCatching {
+            readAll(c, BloodGlucoseRecord::class, TimeRangeFilter.between(from, to)).map {
+                ExternalGlucose(
+                    time = it.time.toEpochMilli(),
+                    zoneId = it.zoneOffset?.id ?: ZoneId.systemDefault().id,
+                    mgDl = it.level.inMilligramsPerDeciliter,
+                    relation = when (it.relationToMeal) {
+                        BloodGlucoseRecord.RELATION_TO_MEAL_FASTING -> MealRelation.FASTING
+                        BloodGlucoseRecord.RELATION_TO_MEAL_BEFORE_MEAL -> MealRelation.BEFORE_MEAL
+                        BloodGlucoseRecord.RELATION_TO_MEAL_AFTER_MEAL -> MealRelation.AFTER_MEAL
+                        BloodGlucoseRecord.RELATION_TO_MEAL_GENERAL -> MealRelation.GENERAL
+                        else -> MealRelation.UNKNOWN
+                    },
+                )
+            }
         }.getOrNull()
     }
 

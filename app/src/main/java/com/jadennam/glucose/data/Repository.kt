@@ -69,6 +69,15 @@ class Repository(private val db: AppDatabase, private val clock: Clock) {
     suspend fun deleteMedication(id: Long) = dao.deleteMedication(id)
     suspend fun allMedications(): List<Medication> = dao.allMedications().map { it.toDomain() }
 
+    /** Saves a prescription change atomically: ends previous medications and inserts the new ones. */
+    suspend fun applyRegimen(ended: List<Medication>, added: List<Medication>) = db.withTransaction {
+        ended.forEach { dao.upsertMedication(it.toEntity()) }
+        dao.insertMedications(added.map { it.toEntity() })
+    }
+
+    suspend fun allReadings(): List<GlucoseReading> = dao.allReadings().map { it.toDomain() }
+    suspend fun addReadings(r: List<GlucoseReading>) = dao.insertReadings(r.map { it.toEntity() })
+
     private fun dayBounds(date: LocalDate, zone: ZoneId): Pair<Long, Long> =
         date.atStartOfDay(zone).toInstant().toEpochMilli() to date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 
