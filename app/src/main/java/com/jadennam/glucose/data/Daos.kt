@@ -71,6 +71,9 @@ interface RecordDao {
     suspend fun meals(from: Long, to: Long): List<MealEntity>
 
     @Query("SELECT * FROM meal ORDER BY eaten_at")
+    fun observeAllMeals(): Flow<List<MealEntity>>
+
+    @Query("SELECT * FROM meal ORDER BY eaten_at")
     suspend fun allMeals(): List<MealEntity>
 
     @Insert
@@ -88,6 +91,9 @@ interface RecordDao {
 
     @Query("SELECT * FROM exercise WHERE performed_at >= :from AND performed_at < :to ORDER BY performed_at")
     suspend fun exercises(from: Long, to: Long): List<ExerciseEntity>
+
+    @Query("SELECT * FROM exercise ORDER BY performed_at")
+    fun observeAllExercises(): Flow<List<ExerciseEntity>>
 
     @Query("SELECT * FROM exercise ORDER BY performed_at")
     suspend fun allExercises(): List<ExerciseEntity>

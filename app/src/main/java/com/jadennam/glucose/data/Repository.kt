@@ -40,6 +40,17 @@ class Repository(private val db: AppDatabase, private val clock: Clock) {
     val allReadings: Flow<List<GlucoseReading>> = dao.observeAllReadings().map { l -> l.map { it.toDomain() } }
     val allWeights: Flow<List<WeightEntry>> = dao.observeAllWeights().map { l -> l.map { it.toDomain() } }
     val medications: Flow<List<Medication>> = dao.observeMedications().map { l -> l.map { it.toDomain() } }
+    val allMeals: Flow<List<Meal>> = dao.observeAllMeals().map { l -> l.map { it.toDomain() } }
+    val allExercises: Flow<List<Exercise>> = dao.observeAllExercises().map { l -> l.map { it.toDomain() } }
+
+    suspend fun deleteMedications(ids: List<Long>) = ids.forEach { dao.deleteMedication(it) }
+
+    /** Applies a whole-prescription edit atomically. */
+    suspend fun applyRegimenEdit(updated: List<Medication>, added: List<Medication>, deletedIds: List<Long>) = db.withTransaction {
+        updated.forEach { dao.upsertMedication(it.toEntity()) }
+        dao.insertMedications(added.map { it.toEntity() })
+        deletedIds.forEach { dao.deleteMedication(it) }
+    }
 
     fun zone(): ZoneId = clock.zone
     fun now(): Long = clock.millis()
@@ -65,8 +76,6 @@ class Repository(private val db: AppDatabase, private val clock: Clock) {
     suspend fun deleteMeal(id: Long) = dao.deleteMeal(id)
     suspend fun deleteExercise(id: Long) = dao.deleteExercise(id)
     suspend fun deleteWeight(id: Long) = dao.deleteWeight(id)
-    suspend fun saveMedication(m: Medication) = dao.upsertMedication(m.toEntity())
-    suspend fun deleteMedication(id: Long) = dao.deleteMedication(id)
     suspend fun allMedications(): List<Medication> = dao.allMedications().map { it.toDomain() }
 
     /** Saves a prescription change atomically: ends previous medications and inserts the new ones. */

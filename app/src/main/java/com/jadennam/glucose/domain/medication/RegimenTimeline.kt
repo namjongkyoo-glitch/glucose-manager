@@ -12,6 +12,11 @@ sealed interface RegimenChange {
     data class Rejected(val reason: String) : RegimenChange
 }
 
+sealed interface RegimenEdit {
+    data class Ok(val updated: List<Medication>, val added: List<Medication>, val deletedIds: List<Long>) : RegimenEdit
+    data class Rejected(val reason: String) : RegimenEdit
+}
+
 /**
  * A new prescription replaces whatever was being taken: medications that started earlier and were
  * still active on [start] end the day before. If a later prescription already exists, the new one
@@ -38,6 +43,24 @@ object RegimenTimeline {
                 startDate = start, endDate = effectiveEnd, note = it.note?.trim()?.ifBlank { null })
         }
         return RegimenChange.Ok(ended, added)
+    }
+
+    /**
+     * Edits one prescription (all medications sharing [group]'s start date) as a whole.
+     * [lines] pairs an existing medication id (0 = newly added drug) with its new values.
+     * Start date stays fixed; [end] applies to every drug in the prescription.
+     */
+    fun edit(group: List<Medication>, lines: List<Pair<Long, RegimenItem>>, end: LocalDate?): RegimenEdit {
+        val start = group.firstOrNull()?.startDate ?: return RegimenEdit.Rejected("수정할 처방이 없습니다.")
+        if (lines.isEmpty()) return RegimenEdit.Rejected("약을 1개 이상 입력하세요. 처방을 없애려면 '처방 삭제'를 누르세요.")
+        if (end != null && end.isBefore(start)) return RegimenEdit.Rejected("종료일이 시작일보다 빠릅니다.")
+        val byId = group.associateBy { it.id }
+
+        fun build(id: Long, it: RegimenItem) = Medication(id, it.name.trim(), it.timesPerDay, it.unitsPerDose, start, end, it.note?.trim()?.ifBlank { null })
+        val updated = lines.filter { it.first != 0L && it.first in byId }.map { (id, item) -> build(id, item) }
+        val added = lines.filter { it.first == 0L || it.first !in byId }.map { (_, item) -> build(0, item) }
+        val keptIds = updated.map { it.id }.toSet()
+        return RegimenEdit.Ok(updated, added, group.map { it.id }.filter { it !in keptIds })
     }
 
     /** Prescriptions grouped by start date, newest first. */

@@ -1,6 +1,10 @@
 package com.jadennam.glucose.domain.trend
 
+import com.jadennam.glucose.domain.model.Exercise
+import com.jadennam.glucose.domain.model.ExerciseType
 import com.jadennam.glucose.domain.model.GlucoseReading
+import com.jadennam.glucose.domain.model.Meal
+import com.jadennam.glucose.domain.model.Medication
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -52,4 +56,36 @@ object TrendAggregator {
     }
 
     private fun zoneOrDefault(id: String): ZoneId = runCatching { ZoneId.of(id) }.getOrDefault(ZoneId.systemDefault())
+}
+
+/** Per-bucket markers shown under the trend chart. */
+data class BucketActivity(
+    val mealCount: Int,
+    /** Exercise type with the most minutes in the bucket, or null when none. */
+    val mainExercise: ExerciseType?,
+    val exerciseMinutes: Int,
+    val medicationCount: Int,
+)
+
+object ActivityAggregator {
+    fun activity(
+        buckets: List<TrendBucket>,
+        meals: List<Meal>,
+        exercises: List<Exercise>,
+        medications: List<Medication>,
+    ): List<BucketActivity> {
+        fun date(ms: Long, zone: String) = Instant.ofEpochMilli(ms).atZone(runCatching { ZoneId.of(zone) }.getOrDefault(ZoneId.systemDefault())).toLocalDate()
+        val mealDates = meals.map { date(it.eatenAt, it.zoneId) }
+        val ex = exercises.map { date(it.performedAt, it.zoneId) to it }
+        return buckets.map { b ->
+            fun inB(d: LocalDate) = !d.isBefore(b.start) && d.isBefore(b.endExclusive)
+            val bucketEx = ex.filter { inB(it.first) }.map { it.second }
+            BucketActivity(
+                mealCount = mealDates.count(::inB),
+                mainExercise = bucketEx.groupBy { it.type }.maxByOrNull { (_, l) -> l.sumOf { it.durationMinutes } }?.key,
+                exerciseMinutes = bucketEx.sumOf { it.durationMinutes },
+                medicationCount = medications.count { it.overlaps(b.start, b.endExclusive) },
+            )
+        }
+    }
 }

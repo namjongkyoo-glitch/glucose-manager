@@ -18,6 +18,7 @@ import com.jadennam.glucose.domain.health.HealthPeriodSummary
 import com.jadennam.glucose.domain.health.HealthSummarizer
 import com.jadennam.glucose.domain.health.GlucoseImport
 import com.jadennam.glucose.domain.medication.RegimenChange
+import com.jadennam.glucose.domain.medication.RegimenEdit
 import com.jadennam.glucose.domain.medication.RegimenItem
 import com.jadennam.glucose.domain.medication.RegimenTimeline
 import com.jadennam.glucose.domain.summary.GlucoseSummary
@@ -33,6 +34,8 @@ import com.jadennam.glucose.domain.model.Medication
 import com.jadennam.glucose.domain.model.Profile
 import com.jadennam.glucose.domain.model.WeightEntry
 import com.jadennam.glucose.domain.schedule.PlannedAlarm
+import com.jadennam.glucose.domain.trend.ActivityAggregator
+import com.jadennam.glucose.domain.trend.BucketActivity
 import com.jadennam.glucose.domain.trend.TrendAggregator
 import com.jadennam.glucose.domain.trend.TrendBucket
 import com.jadennam.glucose.domain.trend.TrendPeriod
@@ -63,6 +66,7 @@ data class TrendState(
     val period: TrendPeriod = TrendPeriod.WEEK,
     val buckets: List<TrendBucket> = emptyList(),
     val medications: List<Medication> = emptyList(),
+    val activity: List<BucketActivity> = emptyList(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -70,6 +74,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val c = app.container
     private val repo = c.repository
     private val estimator = GlucoseEstimator()
+    private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
 
     private val _messages = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _messages.asStateFlow()
@@ -96,8 +101,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val period = MutableStateFlow(TrendPeriod.WEEK)
-    val trend: StateFlow<TrendState> = combine(repo.allReadings, period, today, repo.medications) { r, p, t, meds ->
-        TrendState(p, TrendAggregator.buckets(r, p, t), meds)
+    val trend: StateFlow<TrendState> = combine(
+        combine(repo.allReadings, period, today) { r, p, t -> Triple(r, p, t) },
+        repo.medications, repo.allMeals, repo.allExercises,
+    ) { (r, p, t), meds, meals, ex ->
+        val buckets = TrendAggregator.buckets(r, p, t)
+        TrendState(p, buckets, meds, ActivityAggregator.activity(buckets, meals, ex, meds))
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TrendState())
 
     private val _nextAlarm = MutableStateFlow<PlannedAlarm?>(null)
@@ -177,7 +186,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return if (date == today.value) "${what}을(를) 기록했습니다" else "${Labels.date(date)} ${what}을(를) 기록했습니다"
     }
 
-    fun saveMedication(m: Medication) = viewModelScope.launch(Dispatchers.IO) { repo.saveMedication(m); say("복용 약을 저장했습니다") }
 
     /** New prescription: previous medications end the day before [start]. Calls [onDone] only on success. */
     fun applyRegimen(items: List<RegimenItem>, start: LocalDate, end: LocalDate?, onDone: () -> Unit) = viewModelScope.launch(Dispatchers.IO) {
@@ -189,6 +197,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.Main) { onDone() }
             }
         }
+    }
+
+    /** Edits a whole prescription (all drugs sharing a start date). */
+    fun editRegimen(group: List<Medication>, lines: List<Pair<Long, RegimenItem>>, end: LocalDate?, onDone: () -> Unit) =
+        viewModelScope.launch(Dispatchers.IO) {
+            when (val r = RegimenTimeline.edit(group, lines, end)) {
+                is RegimenEdit.Rejected -> say(r.reason)
+                is RegimenEdit.Ok -> {
+                    repo.applyRegimenEdit(r.updated, r.added, r.deletedIds)
+                    say("처방을 수정했습니다")
+                    withContext(Dispatchers.Main) { onDone() }
+                }
+            }
+        }
+
+    fun deleteRegimen(group: List<Medication>, onDone: () -> Unit) = viewModelScope.launch(Dispatchers.IO) {
+        repo.deleteMedications(group.map { it.id })
+        say("처방을 삭제했습니다")
+        withContext(Dispatchers.Main) { onDone() }
+    }
+
+    // --- Trend marker rows (💊 / 🍚 / 🏃), remembered per device ---
+    data class TrendMarks(val meds: Boolean = true, val meals: Boolean = true, val exercise: Boolean = true)
+
+    private val _trendMarks = MutableStateFlow(
+        TrendMarks(prefs.getBoolean("trend_meds", true), prefs.getBoolean("trend_meals", true), prefs.getBoolean("trend_exercise", true)),
+    )
+    val trendMarks: StateFlow<TrendMarks> = _trendMarks.asStateFlow()
+
+    fun setTrendMarks(m: TrendMarks) {
+        _trendMarks.value = m
+        prefs.edit { putBoolean("trend_meds", m.meds); putBoolean("trend_meals", m.meals); putBoolean("trend_exercise", m.exercise) }
     }
 
     /** User-initiated copy of Samsung Health glucose into app readings (duplicates skipped). */
@@ -203,7 +243,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         repo.addReadings(plan.toInsert)
         say("삼성 헬스 혈당 ${plan.toInsert.size}건을 가져왔습니다" + if (plan.duplicates > 0) " (이미 있는 ${plan.duplicates}건 제외)" else "")
     }
-    fun deleteMedication(id: Long) = viewModelScope.launch(Dispatchers.IO) { repo.deleteMedication(id) }
 
     suspend fun periodDetail(bucket: TrendBucket): PeriodDetail =
         withContext(Dispatchers.IO) { repo.periodDetail(bucket.start, bucket.endExclusive) }
@@ -274,7 +313,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val health: HealthPeriodSummary?,
     )
 
-    private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
     private val summaryPeriod = MutableStateFlow(
         runCatching { SummaryPeriod.valueOf(prefs.getString("summary_period", null) ?: "") }.getOrDefault(SummaryPeriod.YESTERDAY),
     )

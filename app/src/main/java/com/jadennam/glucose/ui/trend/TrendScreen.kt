@@ -2,6 +2,15 @@
 
 package com.jadennam.glucose.ui.trend
 
+import com.jadennam.glucose.ui.components.PresetChip
+import com.jadennam.glucose.ui.MainViewModel.TrendMarks
+import com.jadennam.glucose.domain.medication.RegimenTimeline
+import com.jadennam.glucose.domain.model.Medication
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,6 +76,10 @@ fun TrendScreen(vm: MainViewModel, profile: Profile) {
     var health by remember { mutableStateOf<HealthPeriodSummary?>(null) }
     val healthStatus by vm.healthStatus.collectAsState()
     val unit = profile.glucoseUnit
+    val marks by vm.trendMarks.collectAsState()
+    var showMeds by remember { mutableStateOf(false) }
+    val periodMeds = trend.buckets.takeIf { it.isNotEmpty() }
+        ?.let { b -> trend.medications.filter { it.overlaps(b.first().start, b.last().endExclusive) } }.orEmpty()
 
     LaunchedEffect(selected, trend.buckets) {
         val b = selected?.let { trend.buckets.getOrNull(it) }
@@ -82,9 +95,10 @@ fun TrendScreen(vm: MainViewModel, profile: Profile) {
         Segmented(TrendPeriod.entries, trend.period, { when (it) { TrendPeriod.WEEK -> "주간"; TrendPeriod.MONTH -> "월간"; TrendPeriod.YEAR -> "연간" } }, vm::setPeriod)
 
         SectionCard("실측 혈당 (${Labels.glucoseUnit(unit)})") {
-            TrendChart(trend.buckets, trend.medications, settings.ranges, unit, selected) { selected = it }
+            MarkToggles(marks, vm::setTrendMarks, periodMeds.size) { showMeds = true }
+            TrendChart(trend.buckets, trend.activity, marks, settings.ranges, unit, selected) { selected = it }
             Legend()
-            Hint(if (trend.period == TrendPeriod.YEAR) "점 = 주 평균, 세로선 = 최저~최고. 점을 누르면 그 주의 상세가 나옵니다." else "점 = 일 평균, 세로선 = 최저~최고. 점을 누르면 그날의 상세가 나옵니다.")
+            Hint((if (trend.period == TrendPeriod.YEAR) "점 = 주 평균" else "점 = 일 평균") + ", 세로선 = 최저~최고. 아래 줄은 💊 복용 약 · 🍚 식사 · 운동 기록(칸이 좁으면 점). 위 아이콘으로 줄을 켜고 끕니다. 누르면 상세가 나옵니다.")
             val counted = trend.buckets.filter { it.count > 0 }
             if (counted.isNotEmpty()) {
                 val avg = counted.sumOf { it.avgMgDl!! * it.count } / counted.sumOf { it.count }
@@ -94,6 +108,8 @@ fun TrendScreen(vm: MainViewModel, profile: Profile) {
 
         EstimateCard(estimates, unit, settings.ranges)
     }
+
+    if (showMeds) PeriodMedsDialog(periodMeds) { showMeds = false }
 
     detail?.let { (bucket, d) ->
         ModalBottomSheet(onDismissRequest = { selected = null }) {
@@ -105,7 +121,7 @@ fun TrendScreen(vm: MainViewModel, profile: Profile) {
 @Composable
 private fun Legend() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        listOf(LevelColors.Low to "낮음", LevelColors.InTarget to "목표", LevelColors.High to "높음", LevelColors.VeryHigh to "매우 높음", MedMarkerColor to "약 시작·종료")
+        listOf(LevelColors.Low to "낮음", LevelColors.InTarget to "목표", LevelColors.High to "높음", LevelColors.VeryHigh to "매우 높음")
             .forEach { (c, t) -> LevelDot(c); HSpace(4); Text(t, style = MaterialTheme.typography.labelSmall); HSpace(10) }
     }
 }
@@ -195,4 +211,39 @@ private fun EstimateRow(e: Estimate.Available, unit: GlucoseUnit, ranges: Glucos
         }
         Text(String.format(Locale.KOREAN, "최근 %d회 기반", e.sampleCount), style = MaterialTheme.typography.labelSmall)
     }
+}
+
+/** 💊 🍚 🏃 toggles for the marker rows, plus the 💊 info button for the shown period. */
+@Composable
+private fun MarkToggles(marks: TrendMarks, onChange: (TrendMarks) -> Unit, medCount: Int, onMedsInfo: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        PresetChip("💊", marks.meds) { onChange(marks.copy(meds = !marks.meds)) }
+        PresetChip("🍚", marks.meals) { onChange(marks.copy(meals = !marks.meals)) }
+        PresetChip("🏃", marks.exercise) { onChange(marks.copy(exercise = !marks.exercise)) }
+        Spacer(Modifier.weight(1f))
+        OutlinedButton(onClick = onMedsInfo, contentPadding = PaddingValues(horizontal = 12.dp)) { Text("💊 복용 약 $medCount") }
+    }
+}
+
+/** Brief list of prescriptions taken during the displayed period (description = user's memo). */
+@Composable
+private fun PeriodMedsDialog(meds: List<Medication>, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("이 기간 복용 약") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (meds.isEmpty()) Hint("이 기간에 복용한 약 기록이 없습니다.")
+                RegimenTimeline.groups(meds).forEach { (_, list) ->
+                    Text("처방 ${MedText.period(list.first())}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    list.forEach { m ->
+                        Text("• ${m.name} — ${MedText.dose(m)}")
+                        m.note?.let { Text("   $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+                Hint("설명은 처방에 입력한 메모입니다. 약에 대한 판단은 의료진과 상의하세요.")
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
 }
